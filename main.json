@@ -76,6 +76,13 @@
                 "description": "Domain FQDN to join"
             }
         },
+        "domainNetBiosName": {
+            "type": "string",
+            "defaultValue": "automationops",
+            "metadata": {
+                "description": "description"
+            }
+        },
         "domainJoinOptions": {
             "type": "int",
             "defaultValue": 3,
@@ -187,7 +194,7 @@
             "properties": {
                 "publicIPAllocationMethod": "Dynamic",
                 "dnsSettings": {
-                    "domainNameLabel": "automaationops"
+                    "domainNameLabel": "[parameters('domainNetBiosName')]"
                 }
             }
         },
@@ -479,7 +486,8 @@
             "type": "Microsoft.Resources/deployments",
             "name": "updateVNet",
             "dependsOn": [
-                "[parameters('DomainControllerName')]",
+                "[resourceId('Microsoft.Network/virtualNetworks',parameters('VnetName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines',parameters('DomainControllerName'))]",
                 "[resourceId('Microsoft.Compute/virtualMachines/extensions',parameters('DomainControllerName'),'forest')]"
             ],
             "properties": {
@@ -498,7 +506,9 @@
                             "type": "Microsoft.Network/virtualNetworks",
                             "properties": {
                                 "dhcpOptions": {
-                                    "dnsServers": "[variables('DCNicIP')]"
+                                    "dnsServers": [
+                                        "[variables('DCNicIP')]"
+                                    ]
                                 },
                                 "addressSpace": "[reference(parameters('VnetName')).addressSpace]",
                                 "subnets": [
@@ -609,8 +619,8 @@
             },
             "resources": [
                 {
-                    "name": "Exchange",
-                    "type": "extensions",
+                    "type": "Microsoft.Compute/virtualMachines/extensions",
+                    "name": "[concat(parameters('ExServerName'),'/joindomain')]",
                     "apiVersion": "2019-07-01",
                     "location": "[resourceGroup().location]",
                     "tags": {
@@ -627,7 +637,7 @@
                         "settings": {
                             "Name": "[parameters('domainNameToJoin')]",
                             "OUPath": "[parameters('ouPath')]",
-                            "User": "[concat(parameters('domainNameToJoin'), '\\', parameters('AdminUserName'))]",
+                            "User": "[concat(parameters('domainNetBiosName'), '\\', parameters('AdminUserName'))]",
                             "Restart": "true",
                             "Options": "[parameters('domainJoinOptions')]"
                         },
