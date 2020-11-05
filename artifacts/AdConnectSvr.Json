@@ -1,0 +1,151 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "ExServerName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Exchange Server"
+            }
+        },
+        "AdminUserName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of Admin User for the Domain Controller"
+            }
+        },
+        "AdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password of Admin User for the Domain Controller"
+            }
+        },
+        "OSVersion": {
+            "type": "String",
+            "allowedValues": [
+                "2012-R2-Datacenter",
+                "2016-Datacenter",
+                "2019-Datacenter"
+            ],
+            "metadata": {
+                "description": "Operating System for the Domain Controller"
+            }
+        },
+        "ExServerNic": {
+            "type": "string",
+            "metadata": {
+                "description": "Nic for the Domain Controllers"
+            }
+        },
+        "ExModulesUrl": {
+            "type": "string",
+            "metadata": {
+                "description": "Module URL for DSC"
+            }
+        },
+        "ExConfigurationFunction": {
+            "type": "string",
+            "metadata": {
+                "description": "Function name of DSC"
+            }
+        },
+        "domainNameToJoin": {
+            "type": "string",
+            "metadata": {
+                "description": "description"
+            }
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "name": "[parameters('ExServerName')]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2019-07-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS2_v2"
+                },
+                "osProfile": {
+                    "computerName": "[parameters('ExServerName')]",
+                    "adminUsername": "[parameters('AdminUserName')]",
+                    "adminPassword": "[parameters('AdminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "[parameters('OSVersion')]",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(parameters('ExServerName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        },
+                        "diskSizeGB": 127
+                    },
+                    "dataDisks": [
+                        {
+                            "name": "[concat(parameters('ExServerName'),'_data-disk1')]",
+                            "caching": "None",
+                            "diskSizeGB": 128,
+                            "lun": 0,
+                            "createOption": "Empty",
+                            "managedDisk": {
+                                "storageAccountType": "Premium_LRS"
+                            }
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',parameters('ExServerName'))]"
+                        }
+                    ]
+                }
+            },
+            "resources": [
+                {
+                    "name": "Exchange",
+                    "type": "extensions",
+                    "apiVersion": "2019-07-01",
+                    "location": "[resourceGroup().location]",
+                    "tags": {
+                        "Environment": "test"
+                    },
+                    "dependsOn": [
+                        "[parameters('ExServerName')]"
+                    ],
+                    "properties": {
+                        "publisher": "Microsoft.Powershell",
+                        "type": "DSC",
+                        "typeHandlerVersion": "2.19",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                            "modulesUrl": "[parameters('ExModulesUrl')]",
+                            "configurationFunction": "[parameters('ExConfigurationFunction')]",
+                            "properties": {
+                                "DomainName": "[parameters('domainName')]",
+                                "AdminCreds": {
+                                    "UserName": "[parameters('AdminUserName')]",
+                                    "Password": "PrivateSettingsRef:AdminPassword"
+                                }
+                            }
+                        },
+                        "protectedSettings": {
+                            "items": {
+                                "AdminPassword": "[parameters('AdminPassword')]"
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "outputs": {}
+}

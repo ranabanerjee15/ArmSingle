@@ -1,0 +1,78 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "VnetName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Vnet"
+            }
+        },
+        "AdSubnetName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the ADSubnet"
+            }
+        }
+    },
+    "functions": [],
+    "variables": {
+        "AD-NSG": "[concat(parameters('AdSubnetName'),'-NSG')]"
+
+    },
+    "resources": [
+        {
+            "name": "[parameters('VnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "Environment": "test"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "192.168.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[parameters('AdSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "192.168.10.0/24",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AD-NSG'))]"
+                            }
+
+                        }
+                    },
+                    {
+                        "name": "GatewaySubnet",
+                        "properties": {
+                            "addressPrefix": "192.168.250.0/27"
+                        }
+                    },
+                    {
+                        "name": "BastionSubnet",
+                        "properties": {
+                            "addressPrefix": "192.168.249.0/24"
+                        }
+                    },
+                    {
+                        "name": "MemberServers",
+                        "properties": {
+                            "addressPrefix": "192.168.20.0/24"
+                        }
+                    },
+                    {
+                        "name": "WebServers",
+                        "properties": {
+                            "addressPrefix": "192.168.5.0/24"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {}
+}

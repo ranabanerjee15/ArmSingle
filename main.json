@@ -1,0 +1,645 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "AdminUserName": {
+            "type": "string",
+            "defaultValue": "rbadmin",
+            "metadata": {
+                "description": "The name of the Administrator for the New VM and Domain"
+            }
+        },
+        "AdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "The password for the Administrator account of the new VM and Domain"
+            }
+        },
+        "domainName": {
+            "type": "string",
+            "defaultValue": "automationops.local",
+            "metadata": {
+                "description": "The FQDN of the AD Domain created "
+            }
+        },
+        "DomainControllerName": {
+            "type": "string",
+            "defaultValue": "DC01",
+            "metadata": {
+                "description": "Name of the Domain Controller"
+            }
+        },
+        "VnetName": {
+            "type": "string",
+            "defaultValue": "Hub-Vnet",
+            "metadata": {
+                "description": "Name of the Vnet"
+            }
+        },
+        "AdSubnetName": {
+            "type": "string",
+            "defaultValue": "DomainServices",
+            "metadata": {
+                "description": "Name of the ADSubnet"
+            }
+        },
+        "ExSubnetName": {
+            "type": "string",
+            "defaultValue": "ExchangeServers",
+            "metadata": {
+                "description": "Name of the Exchange Subnet"
+            }
+        },
+        "ExServerName": {
+            "defaultValue": "Ex01",
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Exchange Server"
+            }
+        },
+        "OSVersion": {
+            "type": "String",
+            "defaultValue": "2019-Datacenter",
+            "allowedValues": [
+                "2012-R2-Datacenter",
+                "2016-Datacenter",
+                "2019-Datacenter"
+            ],
+            "metadata": {
+                "description": "Operating System for the Domain Controller"
+            }
+        },
+        "domainNameToJoin": {
+            "type": "string",
+            "defaultValue": "automationops.local",
+            "metadata": {
+                "description": "Domain FQDN to join"
+            }
+        },
+        "domainJoinOptions": {
+            "type": "int",
+            "defaultValue": 3,
+            "metadata": {
+                "description": "Set of bit flags that define the join options. Default value of 3 is a combination of NETSETUP_JOIN_DOMAIN (0x00000001) & NETSETUP_ACCT_CREATE (0x00000002) i.e. will join the domain and create the account on the domain. For more information see https://msdn.microsoft.com/en-us/library/aa392154(v=vs.85).aspx"
+            }
+        },
+        "ouPath": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Specifies an organizational unit (OU) for the domain account. Enter the full distinguished name of the OU in quotation marks. Example: \"OU=testOU; DC=domain; DC=Domain; DC=com\""
+            }
+        },
+        "loadBalancersName": {
+            "defaultValue": "LbEx",
+            "type": "String"
+        },
+        "ExlbPubip": {
+            "defaultValue": "exlbpip",
+            "type": "String"
+        },
+        "AvailablitySetName": {
+            "type": "string",
+            "defaultValue": "AdAvlSet",
+            "metadata": {
+                "description": "Name of the Availibity Set"
+            }
+        }
+
+
+    },
+    "functions": [],
+    "variables": {
+        //"Template-Vnet": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/vnet.json",
+        //"Template-AvailiblitySet": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/availiblityset.json",
+        //"Template-Nics": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/nics.json",
+        //"Template-ADNsg": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/nsg.json",
+        //"Template-vmdc": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/vmdc.json",
+        "DcNic": "[concat(parameters('DomainControllerName'), '-Nic')]",
+        "DCNicIP": "192.168.10.4",
+        "adSubnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets',parameters('VnetName'),parameters('AdSubnetName'))]",
+        "ADNsgName": "[concat(parameters('AdSubnetName'),'-Nsg')]",
+        "adModulesUrl": "https://raw.githubusercontent.com/ranabanerjee15/ArmLinkedTemplates/main/artifacts/DSC/CreateADPDC.zip",
+        "adPDCConfigurationFunction": "CreateADPDC.ps1\\CreateADPDC",
+        "ExNic": "[concat(parameters('ExServerName'), '-Nic')]",
+        "ExNicIP": "192.168.20.20",
+        "ExSubnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets',parameters('VnetName'),parameters('ExSubnetName'))]",
+        "ExNsgName": "[concat(parameters('ExSubnetName'),'-Nsg')]"
+
+    },
+    "resources": [
+        {
+            "name": "[variables('ADNsgName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "Allow_RDP",
+                        "properties": {
+                            "description": "This rule will allow RDP to AD Subnet",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "192.168.10.0/24",
+                            "access": "Allow",
+                            "priority": 1000,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[variables('ExNsgName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "Allow_RDP",
+                        "properties": {
+                            "description": "This rule will allow RDP to AD Subnet",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "192.168.20.0/24",
+                            "access": "Allow",
+                            "priority": 1000,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2019-11-01",
+            "name": "[parameters('ExlbPubip')]",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "Environment": "test"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "dnsSettings": {
+                    "domainNameLabel": "automaationops"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "apiVersion": "2020-05-01",
+            "name": "[parameters('loadBalancersName')]",
+            "location": "australiaeast",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', parameters('ExlbPubip'))]"
+            ],
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LBFE",
+                        "properties": {
+                            "publicIPAddress": {
+                                "id": "[concat(resourceId ('Microsoft.Network/publicIPAddresses', parameters('ExlbPubip')))]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "ADServers"
+                    }
+                ],
+                "loadBalancingRules": [],
+                "probes": [],
+                "inboundNatRules": [
+                    {
+                        "name": "RDP_Allow_DC01",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', parameters('loadBalancersName'), 'LBFE')]"
+                            },
+                            "frontendPort": 9000,
+                            "backendPort": 3389,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 4,
+                            "protocol": "Tcp",
+                            "enableTcpReset": false
+                        }
+                    }
+                ],
+                "inboundNatPools": []
+            }
+        },
+
+        {
+            "name": "[parameters('VnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "Environment": "test"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "192.168.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[parameters('AdSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "192.168.10.0/24",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('ADNsgName'))]"
+                            }
+
+                        }
+                    },
+                    {
+                        "name": "GatewaySubnet",
+                        "properties": {
+                            "addressPrefix": "192.168.250.0/27"
+                        }
+                    },
+                    {
+                        "name": "BastionSubnet",
+                        "properties": {
+                            "addressPrefix": "192.168.249.0/24"
+                        }
+                    },
+                    {
+                        "name": "[parameters('ExSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "192.168.20.0/24",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('ExNsgName'))]"
+                            }
+                        }
+
+                    },
+                    {
+                        "name": "WebServers",
+                        "properties": {
+                            "addressPrefix": "192.168.5.0/24"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2019-12-01",
+            "type": "Microsoft.Compute/availabilitySets",
+            "location": "[resourceGroup().location]",
+            "name": "[parameters('AvailablitySetName')]",
+            "properties": {
+                "PlatformUpdateDomainCount": 5,
+                "PlatformFaultDomainCount": 2
+            },
+            "sku": {
+                "name": "Aligned"
+            },
+            "tags": {
+                "Environment": "test"
+            }
+        },
+        {
+            "name": "[variables('DcNic')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2020-03-01",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAddress": "[variables('DcnicIp')]",
+                            "privateIPAllocationMethod": "Static",
+                            "subnet": {
+                                "id": "[variables('adSubnetRef')]"
+                            },
+                            "primary": true,
+                            "privateIPAddressVersion": "IPv4",
+                            "loadBalancerBackendAddressPools": [
+                                {
+                                    "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', parameters('loadBalancersName'), 'Adservers')]"
+                                }
+                            ],
+                            "loadBalancerInboundNatRules": [
+                                {
+                                    "id": "[resourceId('Microsoft.Network/loadBalancers/inboundNatRules', parameters('loadBalancersName'), 'RDP_Allow_DC01')]"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "enableAcceleratedNetworking": false,
+                "enableIPForwarding": false
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/loadBalancers', parameters('loadBalancersName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups',variables('ADNsgName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks',parameters('VnetName'))]"
+            ]
+        },
+        {
+            "name": "[variables('ExNic')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('VnetName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups',variables('ExNsgName'))]"
+            ],
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2020-03-01",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAddress": "[variables('ExNicIP')]",
+                            "privateIPAllocationMethod": "Static",
+                            "subnet": {
+                                "id": "[variables('ExSubnetRef')]"
+                            },
+                            "primary": true,
+                            "privateIPAddressVersion": "IPv4"
+                        }
+                    }
+                ],
+                "enableAcceleratedNetworking": false,
+                "enableIPForwarding": false
+            }
+        },
+        {
+            "name": "[parameters('DomainControllerName')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces',variables('DcNic'))]",
+                "[resourceId('Microsoft.Compute/availabilitySets',parameters('AvailablitySetName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups',variables('ADNsgName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('VnetName'))]"
+            ],
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2019-07-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS2_v2"
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets',parameters('AvailablitySetName'))]"
+                },
+                "osProfile": {
+                    "computerName": "[parameters('DomainControllerName')]",
+                    "adminUsername": "[parameters('AdminUserName')]",
+                    "adminPassword": "[parameters('AdminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "[parameters('OSVersion')]",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(parameters('DomainControllerName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        },
+                        "diskSizeGB": 127
+
+                    },
+                    "dataDisks": [
+                        {
+                            "name": "[concat(parameters('DomainControllerName'),'_data-disk1')]",
+                            "caching": "None",
+                            "diskSizeGB": 128,
+                            "lun": 0,
+                            "createOption": "Empty",
+                            "managedDisk": {
+                                "storageAccountType": "Premium_LRS"
+                            }
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('DcNic'))]"
+                        }
+                    ]
+                }
+            },
+            "resources": [
+                {
+                    "name": "forest",
+                    "type": "extensions",
+                    "apiVersion": "2019-07-01",
+                    "location": "[resourceGroup().location]",
+                    "tags": {
+                        "Environment": "test"
+                    },
+                    "dependsOn": [
+                        "[parameters('DomainControllerName')]"
+                    ],
+                    "properties": {
+                        "publisher": "Microsoft.Powershell",
+                        "type": "DSC",
+                        "typeHandlerVersion": "2.19",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                            "modulesUrl": "[variables('adModulesUrl')]",
+                            "configurationFunction": "[variables('adPDCConfigurationFunction')]",
+                            "properties": {
+                                "DomainName": "[parameters('domainName')]",
+                                "AdminCreds": {
+                                    "UserName": "[parameters('AdminUserName')]",
+                                    "Password": "PrivateSettingsRef:AdminPassword"
+                                }
+                            }
+                        },
+                        "protectedSettings": {
+                            "items": {
+                                "AdminPassword": "[parameters('AdminPassword')]"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "apiVersion": "2020-06-01",
+            "type": "Microsoft.Resources/deployments",
+            "name": "updateVNet",
+            "dependsOn": [
+                "[parameters('DomainControllerName')]",
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions',parameters('DomainControllerName'),'forest')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "parameters": {},
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "variables": {},
+                    "resources": [
+                        {
+                            "apiVersion": "2016-03-30",
+                            "name": "[parameters('VnetName')]",
+                            "location": "[resourceGroup().location]",
+                            "type": "Microsoft.Network/virtualNetworks",
+                            "properties": {
+                                "dhcpOptions": {
+                                    "dnsServers": "[variables('DCNicIP')]"
+                                },
+                                "addressSpace": "[reference(parameters('VnetName')).addressSpace]",
+                                "subnets": [
+                                    {
+                                        "name": "[parameters('AdSubnetName')]",
+                                        "properties": {
+                                            "addressPrefix": "192.168.10.0/24",
+                                            "networkSecurityGroup": {
+                                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('ADNsgName'))]"
+                                            }
+
+                                        }
+                                    },
+                                    {
+                                        "name": "GatewaySubnet",
+                                        "properties": {
+                                            "addressPrefix": "192.168.250.0/27"
+                                        }
+                                    },
+                                    {
+                                        "name": "BastionSubnet",
+                                        "properties": {
+                                            "addressPrefix": "192.168.249.0/24"
+                                        }
+                                    },
+                                    {
+                                        "name": "[parameters('ExSubnetName')]",
+                                        "properties": {
+                                            "addressPrefix": "192.168.20.0/24",
+                                            "networkSecurityGroup": {
+                                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('ExNsgName'))]"
+                                            }
+                                        }
+
+                                    },
+                                    {
+                                        "name": "WebServers",
+                                        "properties": {
+                                            "addressPrefix": "192.168.5.0/24"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "outputs": {}
+                }
+            }
+        },
+        {
+            "name": "[parameters('ExServerName')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces',variables('ExNic'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups',variables('ExNsgName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('VnetName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines', parameters('DomainControllerName'))]",
+                "[resourceid('Microsoft.Resources/deployments','updateVNet')]",
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions',parameters('DomainControllerName'),'forest')]"
+            ],
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2019-07-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS2_v2"
+                },
+                "osProfile": {
+                    "computerName": "[parameters('ExServerName')]",
+                    "adminUsername": "[parameters('AdminUserName')]",
+                    "adminPassword": "[parameters('AdminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "[parameters('OSVersion')]",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(parameters('ExServerName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        },
+                        "diskSizeGB": 127
+                    },
+                    "dataDisks": [
+                        {
+                            "name": "[concat(parameters('ExServerName'),'_data-disk1')]",
+                            "caching": "None",
+                            "diskSizeGB": 128,
+                            "lun": 0,
+                            "createOption": "Empty",
+                            "managedDisk": {
+                                "storageAccountType": "Premium_LRS"
+                            }
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('ExNic'))]"
+                        }
+                    ]
+                }
+            },
+            "resources": [
+                {
+                    "name": "Exchange",
+                    "type": "extensions",
+                    "apiVersion": "2019-07-01",
+                    "location": "[resourceGroup().location]",
+                    "tags": {
+                        "Environment": "test"
+                    },
+                    "dependsOn": [
+                        "[parameters('ExServerName')]"
+                    ],
+                    "properties": {
+                        "publisher": "Microsoft.Compute",
+                        "type": "JsonADDomainExtension",
+                        "typeHandlerVersion": "1.3",
+                        "autoUpgradeMinorVersion": true,
+                        "settings": {
+                            "Name": "[parameters('domainNameToJoin')]",
+                            "OUPath": "[parameters('ouPath')]",
+                            "User": "[concat(parameters('domainNameToJoin'), '\\', parameters('AdminUserName'))]",
+                            "Restart": "true",
+                            "Options": "[parameters('domainJoinOptions')]"
+                        },
+                        "protectedSettings": {
+                            "Password": "[parameters('AdminPassword')]"
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "outputs": {
+
+    }
+}

@@ -1,0 +1,49 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "ADNSGName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Network Security Group for AD subnet"
+            }
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "Location of NSG"
+            }
+        }
+    },
+    "functions": [],
+    "variables": {
+
+    },
+    "resources": [
+        {
+            "name": "[parameters('ADNSGName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2018-08-01",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "Allow_RDP",
+                        "properties": {
+                            "description": "This rule will allow RDP to AD Subnet",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "192.168.10.0/24",
+                            "access": "Allow",
+                            "priority": 1000,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {}
+}
